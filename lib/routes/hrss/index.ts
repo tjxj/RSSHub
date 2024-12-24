@@ -1,13 +1,14 @@
 import { Route } from '@/types';
+import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { load } from 'cheerio';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
-    path: '/hrss/:category?',
+    path: '/jnjs',
     categories: ['government'],
     example: '/hrss/jnjs',
-    parameters: { category: '分类，见下表，默认为 jnjs（技能鉴定）' },
+    parameters: {},
     features: {
         requireConfig: false,
         requirePuppeteer: false,
@@ -16,54 +17,49 @@ export const route: Route = {
         supportPodcast: false,
         supportScihub: false,
     },
-    name: '河南省技能人才评价工作网',
+    radar: {
+        source: ['pjzdzx.hrss.henan.gov.cn/channels/jnjs/*'],
+    },
+    name: '河南省技能人才评价工作网 - 通知公告',
     maintainers: [''],
     handler,
-    description: `| 技能鉴定 | 政策法规 | 新闻动态 |
-  | :------: | :------: | :------: |
-  |   jnjs   |   zcfg   |   xwdt   |`,
+    url: 'pjzdzx.hrss.henan.gov.cn/channels/jnjs/',
 };
 
-async function handler(ctx) {
-    const category = ctx.req.param('category') ?? 'jnjs';
-    const rootUrl = 'http://pjzdzx.hrss.henan.gov.cn';
-    const currentUrl = `${rootUrl}/channels/${category}/`;
+async function handler() {
+    const baseUrl = 'http://pjzdzx.hrss.henan.gov.cn';
+    const link = `${baseUrl}/channels/jnjs/`;
 
-    const response = await got({
-        method: 'get',
-        url: currentUrl,
-    });
-
+    const response = await got(link);
     const $ = load(response.data);
-    const list = $('.list-text li a')
+
+    const list = $('.list-unstyled li')
         .toArray()
         .map((item) => {
             item = $(item);
+            const a = item.find('a');
             return {
-                title: item.text(),
-                link: new URL(item.attr('href'), rootUrl).href,
-                pubDate: parseDate(item.next().text()),
+                title: a.attr('title'),
+                link: new URL(a.attr('href'), baseUrl).href,
+                pubDate: parseDate(item.find('.pull-right').text().trim()),
             };
         });
 
     const items = await Promise.all(
         list.map((item) =>
-            ctx.cache.tryGet(item.link, async () => {
-                const detailResponse = await got({
-                    method: 'get',
-                    url: item.link,
-                });
-                const content = load(detailResponse.data);
+            cache.tryGet(item.link, async () => {
+                const response = await got(item.link);
+                const $ = load(response.data);
 
-                item.description = content('.TRS_Editor').html();
+                item.description = $('.article-content').html();
                 return item;
             })
         )
     );
 
     return {
-        title: '河南省技能人才评价工作网',
-        link: currentUrl,
+        title: '河南省技能人才评价工作网 - 通知公告',
+        link,
         item: items,
     };
 }
